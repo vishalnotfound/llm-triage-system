@@ -1,96 +1,119 @@
-"""Generate one decision per input ticket."""
+"""Classify a profile's tickets and save a single JSON report."""
 
 import argparse
 import json
-import platform
+import os
+import tempfile
 import time
 from pathlib import Path
 
+from . import model
 from .contract import read_jsonl, validate_decision
-from .profile import load_profile
+from .profile import ROOT, load_profile
+
+DEFAULT_REPORT = ROOT / "results" / "report.json"
 
 
-ROOT = Path(__file__).resolve().parent.parent
-
-
-def show(path):
-    try:
-        return path.resolve().relative_to(ROOT).as_posix()
-    except ValueError:
-        return str(path)
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("api", "api-direct", "heuristic"), default="api")
-    parser.add_argument("--profile", type=Path, default=ROOT, help="Directory containing policy.md and rules.json")
+def add_batch_arguments(parser):
     parser.add_argument("--cases", type=Path, help="Defaults to cases.jsonl in the profile")
-    parser.add_argument("--output", type=Path, default=ROOT / "results" / "decisions.jsonl")
-    args = parser.parse_args()
+    parser.add_argument("--output", type=Path, default=DEFAULT_REPORT, help="Defaults to results/report.json")
 
-    try:
-        profile = load_profile(args.profile)
-    except (ValueError, OSError) as exc:
-        parser.error(str(exc))
-    if args.cases is None:
-        args.cases = profile.directory / "cases.jsonl"
 
-    if args.mode == "heuristic":
-        from .triage import decide
+def read_cases(path):
+    tickets = list(read_jsonl(path))
+    if not tickets:
+        raise ValueError(f"{path}: add at least one ticket")
+    ids = set()
+    for index, ticket in enumerate(tickets, 1):
+        if not isinstance(ticket, dict) or any(
+            not isinstance(ticket.get(field), str) or not ticket[field].strip()
+            for field in ("id", "subject", "body")
+        ):
+            raise ValueError(f"{path}: ticket {index} needs nonempty id, subject, and body strings")
+        if ticket["id"] in ids:
+            raise ValueError(f"{path}: duplicate ticket ID {ticket['id']!r}")
+        ids.add(ticket["id"])
+    return tickets
 
-        config = {"policy_sha256": profile.fingerprint}
-    else:
-        from . import model
 
-        decide = model.decide if args.mode == "api" else model.decide_direct
-        config = model.describe(args.mode, profile)
+def write_report(path, report):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Write beside the destination so a failed or interrupted run leaves the prior report intact.
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, delete=False
+    ) as stream:
+        temporary = Path(stream.name)
+        try:
+            json.dump(report, stream, indent=2, ensure_ascii=False)
+            stream.write("\n")
+            stream.close()
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
-    tickets = list(read_jsonl(args.cases))
-    ids = [ticket["id"] for ticket in tickets]
-    if len(ids) != len(set(ids)):
-        raise ValueError("input contains duplicate ticket IDs")
 
-    # Collect and validate before writing, so a failed run does not leave a
-    # partially generated decision file.
-    decisions, trace = [], []
+def run_batch(directory, cases, output):
+    profile = load_profile(directory)
+    cases = cases or profile.directory / "cases.jsonl"
+    sources = [cases, profile.directory / "rules.json", profile.directory / "policy.md"]
+    if output.suffix.lower() != ".json" or any(output.resolve() == source.resolve() for source in sources):
+        raise ValueError("Choose a separate .json report path")
+    tickets = read_cases(cases)
+    config = model.describe(profile)
+    results = []
     started = time.perf_counter()
     for ticket in tickets:
         try:
-            decision, details = decide(ticket, profile)
-            decisions.append(validate_decision(decision, ticket["id"]))
+            decision, metrics = model.decide(ticket, profile)
+            validate_decision(decision, ticket["id"])
         except Exception as exc:
-            raise RuntimeError(f"ticket {ticket['id']} failed: {exc}") from exc
-        trace.append({"id": ticket["id"], "decision": decision, **details})
+            raise ValueError(f"Ticket {ticket['id']!r} could not be classified: {exc}") from exc
+        results.append({
+            **decision,
+            "subject": ticket["subject"],
+            "signals": metrics["signals"],
+            "metrics": {key: metrics[key] for key in ("prompt_tokens", "completion_tokens", "seconds")},
+        })
     elapsed = time.perf_counter() - started
 
-    usage = {key: sum(item.get(key, 0) for item in trace) for key in ("prompt_tokens", "completion_tokens")}
-    log = {
-        "mode": args.mode,
-        "cases": show(args.cases),
-        "tickets": len(decisions),
-        "elapsed_seconds": round(elapsed, 2),
-        **config,
-        "models_returned": sorted({item["model"] for item in trace if item.get("model")}),
-        "system_fingerprints": sorted({item["system_fingerprint"] for item in trace if item.get("system_fingerprint")}),
-        "usage": usage,
-        "python": platform.python_version(),
-        "platform": platform.platform(),
-        "trace": trace,
-    }
+    def token_sum(key):
+        counts = [result["metrics"][key] for result in results]
+        return sum(counts) if all(type(count) is int for count in counts) else None
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in decisions),
-        encoding="utf-8",
+    prompt_tokens = token_sum("prompt_tokens")
+    completion_tokens = token_sum("completion_tokens")
+    report = {
+        "summary": {
+            "tickets": len(results),
+            "model": config["model_requested"],
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": (
+                prompt_tokens + completion_tokens
+                if prompt_tokens is not None and completion_tokens is not None else None
+            ),
+            "elapsed_seconds": round(elapsed, 3),
+            "policy_sha256": profile.fingerprint,
+        },
+        "results": results,
+    }
+    write_report(output, report)
+    return {"report": str(output)}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--profile", type=Path, default=os.environ.get("LLM_TRIAGE_PROFILE", ROOT),
+        help="Directory containing policy.md and rules.json",
     )
-    log_path = args.output.with_suffix(".run.json")
-    log_path.write_text(json.dumps(log, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"Wrote {len(decisions)} decisions to {show(args.output)} ({elapsed:.1f}s)")
-    if args.mode != "heuristic":
-        print(
-            f"Model {', '.join(log['models_returned'])}: {usage['prompt_tokens']} prompt + "
-            f"{usage['completion_tokens']} completion tokens; details in {show(log_path)}"
-        )
+    add_batch_arguments(parser)
+    args = parser.parse_args()
+    try:
+        result = run_batch(args.profile, args.cases, args.output)
+    except (OSError, ValueError) as exc:
+        parser.exit(1, f"Error: {exc}\n")
+    print(json.dumps(result))
 
 
 if __name__ == "__main__":

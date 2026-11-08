@@ -12,6 +12,7 @@ from pathlib import Path
 from triage_engine import model
 from triage_engine.contract import validate_decision
 from triage_engine.profile import ROOT, load_profile
+from triage_engine.run import add_batch_arguments, run_batch
 
 from .store import STATES, Queue, QueueError
 
@@ -50,7 +51,7 @@ def intake():
 def classify(queue, ticket_id, actor, profile):
     ticket, token = queue.claim(ticket_id, actor)
     try:
-        config = model.describe("api", profile)
+        config = model.describe(profile)
         decision, details = model.decide(ticket, profile)
         validate_decision(decision, ticket_id)
         evidence = {
@@ -58,6 +59,7 @@ def classify(queue, ticket_id, actor, profile):
             "policy_sha256": profile.fingerprint,
             "policy_prompt_sha256": config["system_prompt_sha256"],
             "signals": details["signals"],
+            "metrics": {key: details[key] for key in ("prompt_tokens", "completion_tokens", "seconds")},
         }
     except Exception:
         # Provider responses and exceptions can contain ticket text or credentials.
@@ -79,6 +81,7 @@ def parser():
     )
     cli.add_argument("--actor", help="Audit label (defaults to the OS username)")
     commands = cli.add_subparsers(dest="command", required=True)
+    add_batch_arguments(commands.add_parser("batch", help="Classify cases and save one JSON report"))
     commands.add_parser("submit", help="Queue a JSON ticket read from stdin")
     listing = commands.add_parser("list", help="List tickets, urgent and review first")
     listing.add_argument("--status", choices=STATES)
@@ -137,6 +140,9 @@ def execute(queue, args, actor, profile):
 def main():
     args = parser().parse_args()
     try:
+        if args.command == "batch":
+            print(json.dumps(run_batch(args.profile, args.cases, args.output)))
+            return 0
         actor = required_text(args.actor if args.actor is not None else getpass.getuser(), "actor", 128)
         profile = load_profile(args.profile) if args.command in {"classify", "review"} else None
         queue = Queue(args.db)

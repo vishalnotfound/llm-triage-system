@@ -26,7 +26,7 @@ def validate_decision(value, expected_id=None):
 def read_jsonl(path):
     with open(path, encoding="utf-8") as stream:
         for line_number, line in enumerate(stream, 1):
-            if line.strip():
+            if line.strip() and not line.lstrip().startswith("#"):
                 try:
                     yield json.loads(line)
                 except json.JSONDecodeError as exc:

@@ -1,4 +1,10 @@
 {
+  "_comment": [
+    "Edit this file to define the signals and decisions for your workflow.",
+    "Each signal is a unique lowercase name. The description tells the model when to mark it true.",
+    "Put the highest-priority rule first. The first matching rule wins.",
+    "Change the route, action, and priority in each outcome. The fallback is used if no signal matches."
+  ],
   "rules": [
     {
       "signal": "safety_incident",

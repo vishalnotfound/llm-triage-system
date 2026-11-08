@@ -1,3 +1,6 @@
+<!-- Edit the policy below to describe your workflow, exceptions, and examples.
+     Edit rules.json for signal names, routing outcomes, and rule order. -->
+
 # LLM Triage System policy
 
 This profile classifies customer support tickets. The signal definitions,

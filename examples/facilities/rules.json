@@ -1,15 +1,33 @@
 {
+  "_comment": [
+    "Edit this file to define the signals and decisions for your workflow.",
+    "Each signal is a unique lowercase name. The description tells the model when to mark it true.",
+    "Put the highest-priority rule first. The first matching rule wins.",
+    "Change the route, action, and priority in each outcome. The fallback is used if no signal matches."
+  ],
   "rules": [
     {
       "signal": "active_water_leak",
       "description": "Water is actively leaking in the building.",
-      "outcome": {"route": "facilities_emergency", "action": "escalate", "priority": "urgent"}
+      "outcome": {
+        "route": "facilities_emergency",
+        "action": "escalate",
+        "priority": "urgent"
+      }
     },
     {
       "signal": "fixture_repair",
       "description": "The sender asks for repair of a building fixture.",
-      "outcome": {"route": "maintenance", "action": "schedule_repair", "priority": "normal"}
+      "outcome": {
+        "route": "maintenance",
+        "action": "schedule_repair",
+        "priority": "normal"
+      }
     }
   ],
-  "fallback": {"route": "front_desk", "action": "review_request", "priority": "normal"}
+  "fallback": {
+    "route": "front_desk",
+    "action": "review_request",
+    "priority": "normal"
+  }
 }

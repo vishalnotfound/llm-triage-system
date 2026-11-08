@@ -8,14 +8,12 @@ import time
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from .contract import OUTCOME_FIELDS
 from .profile import ROOT, load_profile
 from .triage import apply_policy, validate_signals
 
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-4.1-mini-2025-04-14"
-PROMPTS = {"api": "candidate_prompt.md", "api-direct": "direct_prompt.md"}
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 ATTEMPTS = 4
 MAX_RESPONSE_BYTES = 64 * 1024
@@ -56,21 +54,14 @@ def settings():
     }
 
 
-def system_prompt(mode, profile):
-    prompt = (ROOT / "triage_engine" / PROMPTS[mode]).read_text(encoding="utf-8")
-    if mode == "api":
-        guidance = "\n".join(f"- {name}: {text}" for name, text in profile.descriptions.items())
-    else:
-        guidance = "\n".join(
-            f"- {profile.descriptions[name]} → {route} / {action} / {priority}"
-            for name, route, action, priority in profile.rules
-        ) + "\nFallback: " + " / ".join(profile.fallback)
+def system_prompt(profile):
+    prompt = (ROOT / "triage_engine" / "candidate_prompt.md").read_text(encoding="utf-8")
+    guidance = "\n".join(f"- {name}: {text}" for name, text in profile.descriptions.items())
     return f"{prompt.strip()}\n\n{guidance}\n\n{profile.policy}"
 
 
-def describe(mode, profile=None):
+def describe(profile):
     """Settings recorded next to the decisions. Never includes the API key."""
-    profile = profile or load_profile()
     config = settings()
     return {
         "base_url": config["base_url"],
@@ -78,7 +69,7 @@ def describe(mode, profile=None):
         "temperature": config["temperature"] or "provider default",
         "response_format": "json_schema, strict",
         "policy_sha256": profile.fingerprint,
-        "system_prompt_sha256": hashlib.sha256(system_prompt(mode, profile).encode("utf-8")).hexdigest(),
+        "system_prompt_sha256": hashlib.sha256(system_prompt(profile).encode("utf-8")).hexdigest(),
     }
 
 
@@ -110,12 +101,12 @@ def post(payload):
         time.sleep(2**attempt)
 
 
-def complete(mode, ticket, schema_name, schema, profile):
+def complete(ticket, schema, profile):
     config = settings()
     payload = {
         "model": config["model"],
         "messages": [
-            {"role": "system", "content": system_prompt(mode, profile)},
+            {"role": "system", "content": system_prompt(profile)},
             {
                 "role": "user",
                 "content": json.dumps(
@@ -125,7 +116,7 @@ def complete(mode, ticket, schema_name, schema, profile):
         ],
         "response_format": {
             "type": "json_schema",
-            "json_schema": {"name": schema_name, "strict": True, "schema": schema},
+            "json_schema": {"name": "ticket_signals", "strict": True, "schema": schema},
         },
     }
     if config["temperature"]:
@@ -140,9 +131,8 @@ def complete(mode, ticket, schema_name, schema, profile):
     usage = result.get("usage") or {}
     return json.loads(message["content"]), {
         "model": result.get("model"),
-        "system_fingerprint": result.get("system_fingerprint"),
-        "prompt_tokens": usage.get("prompt_tokens", 0),
-        "completion_tokens": usage.get("completion_tokens", 0),
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "completion_tokens": usage.get("completion_tokens"),
         "seconds": round(time.perf_counter() - started, 3),
     }
 
@@ -154,24 +144,7 @@ def decide(ticket, profile=None):
         name: {"type": "boolean", "description": description}
         for name, description in profile.descriptions.items()
     })
-    signals, meta = complete("api", ticket, "ticket_signals", schema, profile)
+    signals, meta = complete(ticket, schema, profile)
     validate_signals(signals, profile)
     decision = apply_policy(ticket["id"], signals, profile.rules, profile.fallback)
     return decision, {"signals": signals, **meta}
-
-
-def decide_direct(ticket, profile=None):
-    """Comparison mode that asks the model to choose an outcome directly."""
-    profile = profile or load_profile()
-    schema = object_schema({
-        field: {"type": "string", "enum": sorted({outcome[index] for outcome in profile.outcomes})}
-        for index, field in enumerate(OUTCOME_FIELDS)
-    })
-    answer, meta = complete("api-direct", ticket, "ticket_decision", schema, profile)
-    if not isinstance(answer, dict) or set(answer) != set(OUTCOME_FIELDS):
-        raise ValueError("Model response did not contain the required outcome fields")
-    if any(not isinstance(value, str) for value in answer.values()):
-        raise ValueError("Model outcome fields must be strings")
-    if tuple(answer[field] for field in OUTCOME_FIELDS) not in profile.outcomes:
-        raise ValueError("Model returned an outcome outside the policy")
-    return {"id": ticket["id"], **answer, "escalate": answer["action"] == "escalate"}, meta

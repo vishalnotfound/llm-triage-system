@@ -1,3 +1,5 @@
+# Add or replace tickets below. Use one JSON object per line.
+# Give every ticket a unique id and include a subject and body.
 {"id":"T01","subject":"Charged twice","body":"My card shows two charges for the same monthly plan. Can you check?"}
 {"id":"T02","subject":"Need my invoices","body":"Where can I download invoices for the last three months?"}
 {"id":"T03","subject":"Plan price","body":"What does the team plan cost?"}

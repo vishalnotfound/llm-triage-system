@@ -39,14 +39,17 @@ def load_profile(directory=ROOT):
     directory = Path(directory).resolve()
     policy_file = directory / "policy.md"
     rules_file = directory / "rules.json"
-    policy = policy_file.read_text(encoding="utf-8").strip()
+    policy = re.sub(r"<!--.*?-->", "", policy_file.read_text(encoding="utf-8"), flags=re.DOTALL).strip()
     if not policy:
         raise ValueError(f"{policy_file} is empty")
     raw = rules_file.read_text(encoding="utf-8")
     try:
         data = json.loads(raw)
-        if not isinstance(data, dict) or set(data) != {"rules", "fallback"}:
-            raise ValueError("expected rules and fallback")
+        if not isinstance(data, dict):
+            raise ValueError("rules.json must contain an object")
+        data.pop("_comment", None)
+        if set(data) != {"rules", "fallback"}:
+            raise ValueError("include rules and fallback")
         if not isinstance(data["rules"], list) or not data["rules"]:
             raise ValueError("rules must be a nonempty ordered list")
         descriptions, rules = {}, []

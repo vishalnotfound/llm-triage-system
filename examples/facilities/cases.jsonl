@@ -1,3 +1,5 @@
+# Add or replace tickets below. Use one JSON object per line.
+# Give every ticket a unique id and include a subject and body.
 {"id":"FAC-1","subject":"Leaking sink","body":"Please fix the kitchen sink. Water is pouring onto the floor right now."}
 {"id":"FAC-2","subject":"Door handle","body":"Can someone repair the loose door handle on the second floor?"}
 {"id":"FAC-3","subject":"Parking","body":"Where can visitors park?"}
