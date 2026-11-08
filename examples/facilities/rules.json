@@ -1,0 +1,15 @@
+{
+  "rules": [
+    {
+      "signal": "active_water_leak",
+      "description": "Water is actively leaking in the building.",
+      "outcome": {"route": "facilities_emergency", "action": "escalate", "priority": "urgent"}
+    },
+    {
+      "signal": "fixture_repair",
+      "description": "The sender asks for repair of a building fixture.",
+      "outcome": {"route": "maintenance", "action": "schedule_repair", "priority": "normal"}
+    }
+  ],
+  "fallback": {"route": "front_desk", "action": "review_request", "priority": "normal"}
+}

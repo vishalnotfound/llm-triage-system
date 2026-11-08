@@ -1,0 +1,3 @@
+{"id":"FAC-1","route":"facilities_emergency","action":"escalate","priority":"urgent","escalate":true}
+{"id":"FAC-2","route":"maintenance","action":"schedule_repair","priority":"normal","escalate":false}
+{"id":"FAC-3","route":"front_desk","action":"review_request","priority":"normal","escalate":false}

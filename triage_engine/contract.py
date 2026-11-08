@@ -2,10 +2,8 @@
 
 import json
 
-ROUTES = {"billing", "access", "privacy", "safety", "general"}
-ACTIONS = {"reply", "verify_identity", "escalate", "refuse"}
-PRIORITIES = {"normal", "urgent"}
-FIELDS = {"id", "route", "action", "priority", "escalate"}
+OUTCOME_FIELDS = ("route", "action", "priority")
+FIELDS = {"id", "escalate", *OUTCOME_FIELDS}
 
 
 def validate_decision(value, expected_id=None):
@@ -15,12 +13,9 @@ def validate_decision(value, expected_id=None):
         raise ValueError("id must be a nonempty string")
     if expected_id is not None and value["id"] != expected_id:
         raise ValueError(f"expected id {expected_id}, got {value['id']}")
-    if value["route"] not in ROUTES:
-        raise ValueError(f"invalid route: {value['route']}")
-    if value["action"] not in ACTIONS:
-        raise ValueError(f"invalid action: {value['action']}")
-    if value["priority"] not in PRIORITIES:
-        raise ValueError(f"invalid priority: {value['priority']}")
+    for field in OUTCOME_FIELDS:
+        if not isinstance(value[field], str) or not value[field].strip():
+            raise ValueError(f"{field} must be a nonempty string")
     if type(value["escalate"]) is not bool:
         raise ValueError("escalate must be a boolean")
     if value["escalate"] != (value["action"] == "escalate"):

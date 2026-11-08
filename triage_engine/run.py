@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from .contract import read_jsonl, validate_decision
+from .profile import load_profile
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,19 +23,27 @@ def show(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("api", "api-direct", "heuristic"), default="api")
-    parser.add_argument("--cases", type=Path, default=ROOT / "cases.jsonl")
+    parser.add_argument("--profile", type=Path, default=ROOT, help="Directory containing policy.md and rules.json")
+    parser.add_argument("--cases", type=Path, help="Defaults to cases.jsonl in the profile")
     parser.add_argument("--output", type=Path, default=ROOT / "results" / "decisions.jsonl")
     args = parser.parse_args()
+
+    try:
+        profile = load_profile(args.profile)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    if args.cases is None:
+        args.cases = profile.directory / "cases.jsonl"
 
     if args.mode == "heuristic":
         from .triage import decide
 
-        config = {}
+        config = {"policy_sha256": profile.fingerprint}
     else:
         from . import model
 
         decide = model.decide if args.mode == "api" else model.decide_direct
-        config = model.describe(args.mode)
+        config = model.describe(args.mode, profile)
 
     tickets = list(read_jsonl(args.cases))
     ids = [ticket["id"] for ticket in tickets]
@@ -47,7 +56,7 @@ def main():
     started = time.perf_counter()
     for ticket in tickets:
         try:
-            decision, details = decide(ticket)
+            decision, details = decide(ticket, profile)
             decisions.append(validate_decision(decision, ticket["id"]))
         except Exception as exc:
             raise RuntimeError(f"ticket {ticket['id']} failed: {exc}") from exc
@@ -77,7 +86,7 @@ def main():
     log_path = args.output.with_suffix(".run.json")
     log_path.write_text(json.dumps(log, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"Wrote {len(decisions)} decisions to {show(args.output)} ({elapsed:.1f}s)")
-    if config:
+    if args.mode != "heuristic":
         print(
             f"Model {', '.join(log['models_returned'])}: {usage['prompt_tokens']} prompt + "
             f"{usage['completion_tokens']} completion tokens; details in {show(log_path)}"

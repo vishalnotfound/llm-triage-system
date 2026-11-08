@@ -153,7 +153,7 @@ class Queue:
                 raise QueueError("Ticket changed while classification was in progress")
             self.event(ticket_id, status, actor, {**detail, "decision": decision})
 
-    def review(self, ticket_id, decision, reason, actor):
+    def review(self, ticket_id, decision, reason, actor, policy_sha256):
         with self.write():
             previous = self.get(ticket_id)
             if previous["status"] == "resolved":
@@ -165,6 +165,7 @@ class Queue:
             )
             self.event(ticket_id, "reviewed", actor, {
                 "previous_decision": previous["decision"], "decision": decision, "reason": reason,
+                "policy_sha256": policy_sha256,
             })
 
     def transition(self, ticket_id, expected, status, reason, actor):

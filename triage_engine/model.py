@@ -5,15 +5,14 @@ import hashlib
 import json
 import os
 import time
-from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from .contract import ACTIONS, PRIORITIES, ROUTES
-from .triage import SIGNALS, apply_policy
+from .contract import OUTCOME_FIELDS
+from .profile import ROOT, load_profile
+from .triage import apply_policy, validate_signals
 
 
-ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-4.1-mini-2025-04-14"
 PROMPTS = {"api": "candidate_prompt.md", "api-direct": "direct_prompt.md"}
@@ -28,22 +27,13 @@ class RejectRedirects(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
-SIGNALS_SCHEMA = {
-    "type": "object",
-    "properties": {name: {"type": "boolean"} for name in SIGNALS},
-    "required": list(SIGNALS),
-    "additionalProperties": False,
-}
-DECISION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "route": {"type": "string", "enum": sorted(ROUTES)},
-        "action": {"type": "string", "enum": sorted(ACTIONS)},
-        "priority": {"type": "string", "enum": sorted(PRIORITIES)},
-    },
-    "required": ["route", "action", "priority"],
-    "additionalProperties": False,
-}
+def object_schema(properties):
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
 
 
 @functools.cache
@@ -66,23 +56,29 @@ def settings():
     }
 
 
-@functools.cache
-def system_prompt(mode):
+def system_prompt(mode, profile):
     prompt = (ROOT / "triage_engine" / PROMPTS[mode]).read_text(encoding="utf-8")
-    policy = (ROOT / "policy.md").read_text(encoding="utf-8")
-    return prompt.strip() + "\n\n" + policy.strip()
+    if mode == "api":
+        guidance = "\n".join(f"- {name}: {text}" for name, text in profile.descriptions.items())
+    else:
+        guidance = "\n".join(
+            f"- {profile.descriptions[name]} → {route} / {action} / {priority}"
+            for name, route, action, priority in profile.rules
+        ) + "\nFallback: " + " / ".join(profile.fallback)
+    return f"{prompt.strip()}\n\n{guidance}\n\n{profile.policy}"
 
 
-def describe(mode):
+def describe(mode, profile=None):
     """Settings recorded next to the decisions. Never includes the API key."""
+    profile = profile or load_profile()
     config = settings()
     return {
         "base_url": config["base_url"],
         "model_requested": config["model"],
         "temperature": config["temperature"] or "provider default",
         "response_format": "json_schema, strict",
-        "system_prompt": f"triage_engine/{PROMPTS[mode]} + policy.md",
-        "system_prompt_sha256": hashlib.sha256(system_prompt(mode).encode("utf-8")).hexdigest(),
+        "policy_sha256": profile.fingerprint,
+        "system_prompt_sha256": hashlib.sha256(system_prompt(mode, profile).encode("utf-8")).hexdigest(),
     }
 
 
@@ -114,12 +110,12 @@ def post(payload):
         time.sleep(2**attempt)
 
 
-def complete(mode, ticket, schema_name, schema):
+def complete(mode, ticket, schema_name, schema, profile):
     config = settings()
     payload = {
         "model": config["model"],
         "messages": [
-            {"role": "system", "content": system_prompt(mode)},
+            {"role": "system", "content": system_prompt(mode, profile)},
             {
                 "role": "user",
                 "content": json.dumps(
@@ -151,18 +147,31 @@ def complete(mode, ticket, schema_name, schema):
     }
 
 
-def decide(ticket):
-    """Candidate: the model reports policy signals; triage.apply_policy decides."""
-    signals, meta = complete("api", ticket, "ticket_signals", SIGNALS_SCHEMA)
-    if not isinstance(signals, dict) or set(signals) != set(SIGNALS):
-        raise ValueError("Model response did not contain the required policy signals")
-    if any(type(value) is not bool for value in signals.values()):
-        raise ValueError("Model policy signals must be booleans")
-    return apply_policy(ticket["id"], signals), {"signals": signals, **meta}
+def decide(ticket, profile=None):
+    """Read policy signals and apply the profile's first matching outcome."""
+    profile = profile or load_profile()
+    schema = object_schema({
+        name: {"type": "boolean", "description": description}
+        for name, description in profile.descriptions.items()
+    })
+    signals, meta = complete("api", ticket, "ticket_signals", schema, profile)
+    validate_signals(signals, profile)
+    decision = apply_policy(ticket["id"], signals, profile.rules, profile.fallback)
+    return decision, {"signals": signals, **meta}
 
 
-def decide_direct(ticket):
-    """Ablation: the model applies the policy and returns the decision itself."""
-    answer, meta = complete("api-direct", ticket, "ticket_decision", DECISION_SCHEMA)
-    decision = {"id": ticket["id"], **answer, "escalate": answer.get("action") == "escalate"}
-    return decision, meta
+def decide_direct(ticket, profile=None):
+    """Comparison mode that asks the model to choose an outcome directly."""
+    profile = profile or load_profile()
+    schema = object_schema({
+        field: {"type": "string", "enum": sorted({outcome[index] for outcome in profile.outcomes})}
+        for index, field in enumerate(OUTCOME_FIELDS)
+    })
+    answer, meta = complete("api-direct", ticket, "ticket_decision", schema, profile)
+    if not isinstance(answer, dict) or set(answer) != set(OUTCOME_FIELDS):
+        raise ValueError("Model response did not contain the required outcome fields")
+    if any(not isinstance(value, str) for value in answer.values()):
+        raise ValueError("Model outcome fields must be strings")
+    if tuple(answer[field] for field in OUTCOME_FIELDS) not in profile.outcomes:
+        raise ValueError("Model returned an outcome outside the policy")
+    return {"id": ticket["id"], **answer, "escalate": answer["action"] == "escalate"}, meta

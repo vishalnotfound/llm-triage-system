@@ -45,10 +45,54 @@ python3 -m llm_triage_system reopen SUP-100 --reason "Customer reported a second
 
 All successful commands emit JSON. Exit code `1` indicates a rejected
 operation and `2` indicates a recorded classification failure requiring
-review. Classification stores the requested model, prompt and policy hash,
+review. Classification stores the requested model, prompt and policy hashes,
 and detected signals. Manual changes record their reason and actor.
 Interrupted classifications can be retried after a five-minute lease expires.
 A late classification result cannot overwrite a newer attempt or manual decision.
+
+## Use your own policy and cases
+
+A profile is a folder of editable files. The files in the repository root are
+the default support profile. Copy the
+[facilities example](examples/facilities/) to start a new one.
+
+| File | What to edit |
+| --- | --- |
+| `policy.md` | Write the domain policy, exceptions, and examples in plain language. The model reads this during classification. |
+| `rules.json` | Define the boolean signals the model can report. Give each rule a unique lowercase `signal`, a `description` explaining when it applies, and an `outcome` with `route`, `action`, and `priority`. List rules in precedence order and include a `fallback` outcome. |
+| `cases.jsonl` | Add one ticket per line with a unique `id`, `subject`, and `body`. The batch runner reads this file by default. |
+| `expected.jsonl` | To test a custom profile, add one expected decision per case ID with `id`, `route`, `action`, `priority`, and a boolean `escalate`. |
+
+The app builds the model's JSON schema from `rules.json` and requires a
+boolean for every configured signal. When multiple signals match, the first
+rule wins. When none match, the fallback wins. Change rule order and outcomes
+in JSON. Keep your policy prose consistent with it.
+
+Routes, actions, and priority labels are editable. The decision always has
+the same five fields for integrations. Use `action: "escalate"` to set
+`escalate` to true and `priority: "urgent"` to put open tickets first in the
+queue. Outcomes are recommendations for your workflow.
+
+Run the example against your configured model, then check the results
+against its expected decisions:
+
+```sh
+python3 -m triage_engine.run --profile examples/facilities \
+  --output results/facilities.jsonl
+python3 -m triage_engine.evaluate --profile examples/facilities \
+  --decisions results/facilities.jsonl
+```
+
+To use the same profile with the live queue, select it with `--profile` or
+set `LLM_TRIAGE_PROFILE`. Use a separate database for each workflow. A profile
+change applies to future classifications and manual reviews.
+
+```sh
+export LLM_TRIAGE_PROFILE=examples/facilities
+export LLM_TRIAGE_DB=var/facilities.sqlite3
+head -n 1 examples/facilities/cases.jsonl | python3 -m llm_triage_system submit
+python3 -m llm_triage_system classify FAC-1
+```
 
 ## Operate on a single host
 
@@ -81,8 +125,8 @@ python3 -m triage_engine.evaluate --extra-decisions evals/recorded/extra_decisio
 
 Use `python3 -m triage_engine.run --help` to generate fresh batch decisions.
 Pass their paths to the evaluator with `--decisions` and `--extra-decisions`.
-The keyword and direct-model modes are available for comparisons in the batch
-runner. The live queue uses the policy-backed classifier.
+The direct-model comparison is available in the batch runner. The keyword
+smoke check requires the original support signals. The live queue uses the policy-backed classifier.
 
 The synthetic cases and initial policy are adapted from Deployment.inc's
 [Open Problem 02 — The Deprecation Notice](https://github.com/Deployment-inc/Deployment.inc-Hiring-Problems/blob/main/problems/OP-02-the-deprecation-notice.md), under the

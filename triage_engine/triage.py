@@ -1,27 +1,18 @@
-"""Deterministic policy layer, plus an offline keyword heuristic.
+"""Apply profile rules in order and provide a support keyword smoke check."""
 
-The precedence from policy.md lives here once. `--mode api` asks a model only
-for the signals below and applies these rules; `--mode heuristic` guesses the
-signals from keywords as an offline smoke check.
-"""
-
-# (signal, route, action, priority) in policy.md order; the first match wins.
-RULES = (
-    ("safety_incident", "safety", "escalate", "urgent"),  # rule 1
-    ("third_party_data_request", "privacy", "refuse", "normal"),  # rule 2
-    ("privacy_rights_request", "privacy", "verify_identity", "normal"),  # rule 3
-    ("privacy_policy_question", "privacy", "reply", "normal"),  # rule 3
-    ("account_change_request", "access", "verify_identity", "normal"),  # rule 4
-    ("sign_in_troubleshooting", "access", "reply", "normal"),  # rule 4
-    ("billing_question", "billing", "reply", "normal"),  # rule 5
-)
-FALLBACK = ("general", "reply", "normal")  # rule 6
-SIGNALS = tuple(rule[0] for rule in RULES)
+from .profile import load_profile
 
 
-def apply_policy(ticket_id, signals, rules=RULES):
+def validate_signals(signals, profile):
+    if not isinstance(signals, dict) or set(signals) != set(profile.descriptions):
+        raise ValueError("Expected exactly the configured policy signals")
+    if any(type(value) is not bool for value in signals.values()):
+        raise ValueError("Policy signals must be booleans")
+
+
+def apply_policy(ticket_id, signals, rules, fallback):
     route, action, priority = next(
-        (rule[1:] for rule in rules if signals[rule[0]]), FALLBACK
+        (rule[1:] for rule in rules if signals[rule[0]]), fallback
     )
     return {
         "id": ticket_id,
@@ -50,6 +41,9 @@ def keyword_signals(ticket):
     return {signal: any(word in text for word in words) for signal, words in KEYWORDS.items()}
 
 
-def decide(ticket):
+def decide(ticket, profile=None):
     signals = keyword_signals(ticket)
-    return apply_policy(ticket["id"], signals), {"signals": signals}
+    profile = profile or load_profile()
+    if set(signals) != set(profile.descriptions):
+        raise ValueError("The keyword smoke check requires the original support signals")
+    return apply_policy(ticket["id"], signals, profile.rules, profile.fallback), {"signals": signals}

@@ -1,0 +1,72 @@
+{
+  "rules": [
+    {
+      "signal": "safety_incident",
+      "description": "A credible report of an actual account compromise, leaked credentials or tokens, exposed customer data, or active abuse. Quoted and hypothetical incidents and angry or urgent tone alone do not count.",
+      "outcome": {
+        "route": "safety",
+        "action": "escalate",
+        "priority": "urgent"
+      }
+    },
+    {
+      "signal": "third_party_data_request",
+      "description": "A request for someone else's private data or credentials.",
+      "outcome": {
+        "route": "privacy",
+        "action": "refuse",
+        "priority": "normal"
+      }
+    },
+    {
+      "signal": "privacy_rights_request",
+      "description": "A request to delete, export, or correct a person's data.",
+      "outcome": {
+        "route": "privacy",
+        "action": "verify_identity",
+        "priority": "normal"
+      }
+    },
+    {
+      "signal": "privacy_policy_question",
+      "description": "A general question about the privacy policy or data retention.",
+      "outcome": {
+        "route": "privacy",
+        "action": "reply",
+        "priority": "normal"
+      }
+    },
+    {
+      "signal": "account_change_request",
+      "description": "A request to reset a password, change an email address, disable MFA, or unlock an account.",
+      "outcome": {
+        "route": "access",
+        "action": "verify_identity",
+        "priority": "normal"
+      }
+    },
+    {
+      "signal": "sign_in_troubleshooting",
+      "description": "A request for sign-in help without asking for an account change.",
+      "outcome": {
+        "route": "access",
+        "action": "reply",
+        "priority": "normal"
+      }
+    },
+    {
+      "signal": "billing_question",
+      "description": "A duplicate charge, refund, invoice, or pricing question, including a chargeback threat.",
+      "outcome": {
+        "route": "billing",
+        "action": "reply",
+        "priority": "normal"
+      }
+    }
+  ],
+  "fallback": {
+    "route": "general",
+    "action": "reply",
+    "priority": "normal"
+  }
+}

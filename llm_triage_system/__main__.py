@@ -10,13 +10,12 @@ from contextlib import closing
 from pathlib import Path
 
 from triage_engine import model
-from triage_engine.contract import ACTIONS, PRIORITIES, ROUTES, validate_decision
-from triage_engine.triage import FALLBACK, RULES
+from triage_engine.contract import validate_decision
+from triage_engine.profile import ROOT, load_profile
 
 from .store import STATES, Queue, QueueError
 
 MAX_INPUT = 128 * 1024
-POLICY_OUTCOMES = {rule[1:] for rule in RULES} | {FALLBACK}
 
 
 def required_text(value, field, maximum):
@@ -48,14 +47,15 @@ def intake():
     }
 
 
-def classify(queue, ticket_id, actor):
+def classify(queue, ticket_id, actor, profile):
     ticket, token = queue.claim(ticket_id, actor)
     try:
-        config = model.describe("api")
-        decision, details = model.decide(ticket)
+        config = model.describe("api", profile)
+        decision, details = model.decide(ticket, profile)
         validate_decision(decision, ticket_id)
         evidence = {
             "model": config["model_requested"],
+            "policy_sha256": profile.fingerprint,
             "policy_prompt_sha256": config["system_prompt_sha256"],
             "signals": details["signals"],
         }
@@ -73,12 +73,16 @@ def parser():
         "--db", type=Path, default=os.environ.get("LLM_TRIAGE_DB", "var/triage.sqlite3"),
         help="SQLite path (default: LLM_TRIAGE_DB or var/triage.sqlite3)",
     )
+    cli.add_argument(
+        "--profile", type=Path, default=os.environ.get("LLM_TRIAGE_PROFILE", ROOT),
+        help="Directory containing policy.md and rules.json (or set LLM_TRIAGE_PROFILE)",
+    )
     cli.add_argument("--actor", help="Audit label (defaults to the OS username)")
     commands = cli.add_subparsers(dest="command", required=True)
     commands.add_parser("submit", help="Queue a JSON ticket read from stdin")
     listing = commands.add_parser("list", help="List tickets, urgent and review first")
     listing.add_argument("--status", choices=STATES)
-    listing.add_argument("--route", choices=sorted(ROUTES))
+    listing.add_argument("--route", metavar="ROUTE")
     listing.add_argument("--limit", type=int, default=50)
     listing.add_argument("--offset", type=int, default=0)
     for command, help_text in (
@@ -94,13 +98,13 @@ def parser():
         if command in {"review", "resolve", "reopen"}:
             operation.add_argument("--reason", required=True)
         if command == "review":
-            operation.add_argument("--route", required=True, choices=sorted(ROUTES))
-            operation.add_argument("--action", required=True, choices=sorted(ACTIONS))
-            operation.add_argument("--priority", required=True, choices=sorted(PRIORITIES))
+            operation.add_argument("--route", required=True, metavar="ROUTE")
+            operation.add_argument("--action", required=True, metavar="ACTION")
+            operation.add_argument("--priority", required=True, metavar="PRIORITY")
     return cli
 
 
-def execute(queue, args, actor):
+def execute(queue, args, actor, profile):
     if args.command == "submit":
         ticket = intake()
         return {"id": ticket["id"], "created": queue.submit(ticket, actor)}
@@ -111,16 +115,16 @@ def execute(queue, args, actor):
     if args.command == "history":
         return queue.history(args.id)
     if args.command == "classify":
-        result = classify(queue, args.id, actor)
+        result = classify(queue, args.id, actor, profile)
         return {key: value for key, value in result.items() if key != "body"}
     if args.command == "review":
-        if (args.route, args.action, args.priority) not in POLICY_OUTCOMES:
+        if (args.route, args.action, args.priority) not in profile.outcomes:
             raise QueueError("Route, action, and priority must form an outcome allowed by policy")
         decision = validate_decision({
             "id": args.id, "route": args.route, "action": args.action,
             "priority": args.priority, "escalate": args.action == "escalate",
         })
-        queue.review(args.id, decision, required_text(args.reason, "reason", 1000), actor)
+        queue.review(args.id, decision, required_text(args.reason, "reason", 1000), actor, profile.fingerprint)
     if args.command in {"resolve", "reopen"}:
         expected, status = ("triaged", "resolved") if args.command == "resolve" else ("resolved", "triaged")
         queue.transition(args.id, expected, status, required_text(args.reason, "reason", 1000), actor)
@@ -134,14 +138,15 @@ def main():
     args = parser().parse_args()
     try:
         actor = required_text(args.actor if args.actor is not None else getpass.getuser(), "actor", 128)
+        profile = load_profile(args.profile) if args.command in {"classify", "review"} else None
         queue = Queue(args.db)
         with closing(queue.db):
-            result = execute(queue, args, actor)
+            result = execute(queue, args, actor, profile)
         print(json.dumps(result, indent=2))
         if args.command == "classify" and result["status"] == "needs_review":
             return 2
         return 0
-    except (QueueError, OSError, sqlite3.Error) as exc:
+    except (QueueError, ValueError, OSError, sqlite3.Error) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 

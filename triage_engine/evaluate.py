@@ -5,26 +5,13 @@ import json
 from pathlib import Path
 
 from .contract import FIELDS, read_jsonl, validate_decision
-from .triage import RULES, apply_policy
+from .profile import load_profile
+from .triage import apply_policy, validate_signals
 
 
 ROOT = Path(__file__).resolve().parent.parent
 DECISION_FIELDS = ("route", "action", "priority", "escalate")
 CHECKS = ("incident", "false_alarm", "injection", "identity", "third_party", "precedence", "routine")
-
-# Every (route, action, priority) policy.md can produce, written out by hand
-# rather than derived from triage.RULES so that a bad rule edit cannot hide.
-ALLOWED = {
-    ("safety", "escalate", "urgent"),
-    ("privacy", "refuse", "normal"),
-    ("privacy", "verify_identity", "normal"),
-    ("privacy", "reply", "normal"),
-    ("access", "verify_identity", "normal"),
-    ("access", "reply", "normal"),
-    ("billing", "reply", "normal"),
-    ("general", "reply", "normal"),
-}
-
 
 def show(path):
     try:
@@ -48,12 +35,14 @@ def load_decisions(path, case_ids):
     return {row["id"]: row for row in rows}
 
 
-def load_expected(path):
+def load_expected(path, allowed):
     expected = {}
     for row in read_jsonl(path):
         validate_decision({field: row[field] for field in FIELDS})
-        if (row["route"], row["action"], row["priority"]) not in ALLOWED:
+        if (row["route"], row["action"], row["priority"]) not in allowed:
             raise ValueError(f"{path}: label for {row['id']} is not an outcome policy.md allows")
+        if row["id"] in expected:
+            raise ValueError(f"{path}: duplicate label for {row['id']}")
         expected[row["id"]] = row
     return expected
 
@@ -66,38 +55,39 @@ def load_signals(decisions_path):
     return {item["id"]: item["signals"] for item in trace if "signals" in item}
 
 
-def policy_failures(decisions, expected):
+def policy_failures(decisions, expected, allowed):
     """Map case ID to a problem for every decision that policy.md does not allow."""
     failures = {}
     for case_id, decision in decisions.items():
         want = expected.get(case_id)
-        if (decision["route"], decision["action"], decision["priority"]) not in ALLOWED:
+        if (decision["route"], decision["action"], decision["priority"]) not in allowed:
             failures[case_id] = f"{label(decision)} is not an outcome policy.md allows"
         elif want and any(decision[field] != want[field] for field in DECISION_FIELDS):
-            failures[case_id] = f"expected {label(want)}, got {label(decision)}. {want['why']}"
+            failures[case_id] = f"expected {label(want)}, got {label(decision)}. {want.get('why', '')}"
     return failures
 
 
-def weakened_rules():
-    """Deliberately broken copies of triage.RULES that the suite must catch."""
+def weakened_rules(rules):
+    """Deliberately broken copies of the built-in rules that the suite must catch."""
     yield "accept identity claims (verify_identity becomes reply)", [
         (signal, route, "reply" if action == "verify_identity" else action, priority)
-        for signal, route, action, priority in RULES
+        for signal, route, action, priority in rules
     ]
-    yield "drop the incident rule (rule 1)", [rule for rule in RULES if rule[1] != "safety"]
-    yield "drop the third-party refusal (rule 2)", [rule for rule in RULES if rule[2] != "refuse"]
-    others = [rule for rule in RULES if rule[1] != "billing"]
-    billing = [rule for rule in RULES if rule[1] == "billing"]
+    yield "drop the incident rule (rule 1)", [rule for rule in rules if rule[1] != "safety"]
+    yield "drop the third-party refusal (rule 2)", [rule for rule in rules if rule[2] != "refuse"]
+    others = [rule for rule in rules if rule[1] != "billing"]
+    billing = [rule for rule in rules if rule[1] == "billing"]
     yield "check billing before privacy and access", others[:2] + billing + others[2:]
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--decisions", type=Path, default=ROOT / "evals" / "recorded" / "decisions.jsonl")
-    parser.add_argument("--cases", type=Path, default=ROOT / "cases.jsonl")
+    parser.add_argument("--profile", type=Path, default=ROOT, help="Directory containing policy.md and rules.json")
+    parser.add_argument("--decisions", type=Path)
+    parser.add_argument("--cases", type=Path, help="Defaults to cases.jsonl in the profile")
     parser.add_argument("--extra-decisions", type=Path, help="decisions for --extra-cases")
     parser.add_argument("--extra-cases", type=Path, default=ROOT / "evals" / "extra_cases.jsonl")
-    parser.add_argument("--expected", type=Path, default=ROOT / "evals" / "expected.jsonl")
+    parser.add_argument("--expected", type=Path)
     parser.add_argument("--reference", type=Path, help="optional reference decisions for the primary cases")
     parser.add_argument("--out", type=Path, help="also save this report as UTF-8 text")
     args = parser.parse_args()
@@ -108,7 +98,21 @@ def main():
         print(text)
         lines.append(text)
 
-    expected = load_expected(args.expected)
+    try:
+        profile = load_profile(args.profile)
+        bundled = profile.directory == ROOT
+        if args.cases is None:
+            args.cases = profile.directory / "cases.jsonl"
+        if args.decisions is None:
+            if not bundled:
+                parser.error("--decisions is required for custom profiles")
+            args.decisions = ROOT / "evals" / "recorded" / "decisions.jsonl"
+        if args.expected is None:
+            args.expected = (ROOT / "evals" if bundled else profile.directory) / "expected.jsonl"
+        allowed = profile.outcomes
+        expected = load_expected(args.expected, allowed)
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        parser.error(str(exc))
     sources = [("public", args.decisions, args.cases)]
     if args.extra_decisions:
         sources.append(("added", args.extra_decisions, args.extra_cases))
@@ -132,7 +136,12 @@ def main():
 
     say()
     say(f"Policy compliance (labels in {show(args.expected)})")
-    failures = policy_failures(decisions, expected)
+    if not bundled:
+        missing = sorted(set(decisions) - set(expected))
+        if missing:
+            say(f"  FAIL: missing expected outcomes for {', '.join(missing)}")
+            ok = False
+    failures = policy_failures(decisions, expected, allowed)
     for group in dict.fromkeys(groups.values()):
         ids = [case_id for case_id in decisions if groups[case_id] == group]
         labeled = [case_id for case_id in ids if case_id in expected]
@@ -174,31 +183,43 @@ def main():
                 verdict = "no policy label"
             elif case_id not in failures:
                 verdict = "fix: the reference violates policy"
-            elif case_id not in policy_failures({case_id: old}, expected):
+            elif case_id not in policy_failures({case_id: old}, expected, allowed):
                 verdict = "REGRESSION: the reference follows policy, these decisions do not"
             else:
                 verdict = "both violate policy"
             say(f"  {case_id} {label(old)} -> {label(new)} ({changed} changed): {verdict}")
             if case_id in expected:
-                say(f"      policy: {expected[case_id]['why']}")
+                say(f"      policy: {expected[case_id].get('why', '')}")
 
     say()
     say("Sensitivity: deliberately weakened rules replayed on the recorded signals")
     if not decisions or set(signals) != set(decisions):
         say("  SKIP: needs signals recorded by run.py --mode api or heuristic for every decision")
     else:
-
-        def replay(rules):
-            return {case_id: apply_policy(case_id, values, rules) for case_id, values in signals.items()}
-
-        if replay(RULES) != decisions:
-            say("  FAIL: the recorded signals do not reproduce these decisions")
+        try:
+            for values in signals.values():
+                validate_signals(values, profile)
+        except ValueError as exc:
+            say(f"  FAIL: {exc}")
             ok = False
-        already_failing = set(policy_failures(replay(RULES), expected))
-        for name, rules in weakened_rules():
-            caught = sorted(set(policy_failures(replay(rules), expected)) - already_failing)
-            say(f"  {'caught' if caught else 'MISSED'}: {name}" + (f" -> {' '.join(caught)}" if caught else ""))
-            ok = ok and bool(caught)
+        else:
+            def replay(rules):
+                return {
+                    case_id: apply_policy(case_id, values, rules, profile.fallback)
+                    for case_id, values in signals.items()
+                }
+
+            if replay(profile.rules) != decisions:
+                say("  FAIL: the recorded signals do not reproduce these decisions")
+                ok = False
+            else:
+                say("  PASS: recorded signals reproduce the decisions")
+            if bundled and args.expected == ROOT / "evals" / "expected.jsonl":
+                already_failing = set(policy_failures(replay(profile.rules), expected, allowed))
+                for name, rules in weakened_rules(profile.rules):
+                    caught = sorted(set(policy_failures(replay(rules), expected, allowed)) - already_failing)
+                    say(f"  {'caught' if caught else 'MISSED'}: {name}" + (f" -> {' '.join(caught)}" if caught else ""))
+                    ok = ok and bool(caught)
 
     say()
     say(f"RESULT: {'PASS' if ok else 'FAIL'}")
