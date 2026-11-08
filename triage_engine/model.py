@@ -46,11 +46,12 @@ def settings():
             key, sep, value = line.partition("=")
             if sep and not key.strip().startswith("#"):
                 os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+    model = os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL
     return {
         "base_url": os.environ.get("OPENAI_BASE_URL") or DEFAULT_BASE_URL,
-        "model": os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
-        # Empty omits the parameter, for models that only accept their default.
-        "temperature": os.environ.get("OPENAI_TEMPERATURE", "0"),
+        "model": model,
+        # Luna uses provider sampling defaults, even when an override is set.
+        "temperature": "" if model == "gpt-6-luna" else os.environ.get("OPENAI_TEMPERATURE", "0"),
     }
 
 
