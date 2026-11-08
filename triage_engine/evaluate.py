@@ -4,8 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
-from contract import FIELDS, read_jsonl, validate_decision
-from triage import RULES, apply_policy
+from .contract import FIELDS, read_jsonl, validate_decision
+from .triage import RULES, apply_policy
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -93,12 +93,12 @@ def weakened_rules():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--decisions", type=Path, default=ROOT / "results" / "decisions.jsonl")
+    parser.add_argument("--decisions", type=Path, default=ROOT / "evals" / "recorded" / "decisions.jsonl")
     parser.add_argument("--cases", type=Path, default=ROOT / "cases.jsonl")
     parser.add_argument("--extra-decisions", type=Path, help="decisions for --extra-cases")
     parser.add_argument("--extra-cases", type=Path, default=ROOT / "evals" / "extra_cases.jsonl")
     parser.add_argument("--expected", type=Path, default=ROOT / "evals" / "expected.jsonl")
-    parser.add_argument("--reference", type=Path, default=ROOT / "baseline_decisions.jsonl")
+    parser.add_argument("--reference", type=Path, help="optional reference decisions for the primary cases")
     parser.add_argument("--out", type=Path, help="also save this report as UTF-8 text")
     args = parser.parse_args()
 
@@ -152,7 +152,7 @@ def main():
     ok = ok and not failures
 
     public = {case_id: decision for case_id, decision in decisions.items() if groups[case_id] == "public"}
-    if public:
+    if public and args.reference:
         say()
         say(f"Agreement with {show(args.reference)} (public cases)")
         reference = load_decisions(args.reference, list(public))

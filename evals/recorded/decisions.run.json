@@ -2,7 +2,7 @@
   "mode": "api",
   "cases": "cases.jsonl",
   "tickets": 15,
-  "elapsed_seconds": 21.68,
+  "elapsed_seconds": 22.44,
   "base_url": "https://api.openai.com/v1",
   "model_requested": "gpt-4.1-mini-2025-04-14",
   "temperature": "0",
@@ -13,6 +13,7 @@
     "gpt-4.1-mini-2025-04-14"
   ],
   "system_fingerprints": [
+    "fp_6e0170489c",
     "fp_75022ca69a"
   ],
   "usage": {
@@ -44,7 +45,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 934,
       "completion_tokens": 47,
-      "seconds": 3.298
+      "seconds": 2.179
     },
     {
       "id": "T02",
@@ -68,7 +69,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 930,
       "completion_tokens": 47,
-      "seconds": 1.365
+      "seconds": 1.689
     },
     {
       "id": "T03",
@@ -92,7 +93,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 925,
       "completion_tokens": 47,
-      "seconds": 1.572
+      "seconds": 1.594
     },
     {
       "id": "T04",
@@ -116,7 +117,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 929,
       "completion_tokens": 47,
-      "seconds": 1.228
+      "seconds": 1.331
     },
     {
       "id": "T05",
@@ -140,7 +141,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 936,
       "completion_tokens": 47,
-      "seconds": 1.539
+      "seconds": 1.434
     },
     {
       "id": "T06",
@@ -164,7 +165,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 934,
       "completion_tokens": 47,
-      "seconds": 1.467
+      "seconds": 1.517
     },
     {
       "id": "T07",
@@ -188,7 +189,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 938,
       "completion_tokens": 47,
-      "seconds": 1.193
+      "seconds": 1.073
     },
     {
       "id": "T08",
@@ -209,10 +210,10 @@
         "billing_question": false
       },
       "model": "gpt-4.1-mini-2025-04-14",
-      "system_fingerprint": "fp_75022ca69a",
+      "system_fingerprint": "fp_6e0170489c",
       "prompt_tokens": 929,
       "completion_tokens": 47,
-      "seconds": 1.194
+      "seconds": 1.198
     },
     {
       "id": "T09",
@@ -236,7 +237,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 936,
       "completion_tokens": 47,
-      "seconds": 1.151
+      "seconds": 1.228
     },
     {
       "id": "T10",
@@ -260,7 +261,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 940,
       "completion_tokens": 47,
-      "seconds": 1.112
+      "seconds": 1.484
     },
     {
       "id": "T11",
@@ -284,7 +285,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 938,
       "completion_tokens": 47,
-      "seconds": 1.355
+      "seconds": 1.638
     },
     {
       "id": "T12",
@@ -308,7 +309,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 927,
       "completion_tokens": 47,
-      "seconds": 1.293
+      "seconds": 1.197
     },
     {
       "id": "T13",
@@ -332,7 +333,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 953,
       "completion_tokens": 47,
-      "seconds": 1.574
+      "seconds": 1.415
     },
     {
       "id": "T14",
@@ -356,7 +357,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 950,
       "completion_tokens": 47,
-      "seconds": 1.13
+      "seconds": 2.203
     },
     {
       "id": "T15",
@@ -380,7 +381,7 @@
       "system_fingerprint": "fp_75022ca69a",
       "prompt_tokens": 934,
       "completion_tokens": 47,
-      "seconds": 1.202
+      "seconds": 1.258
     }
   ]
 }

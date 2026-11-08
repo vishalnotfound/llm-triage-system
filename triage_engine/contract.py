@@ -1,4 +1,4 @@
-"""Shared output contract for the assignment's decision JSONL."""
+"""Validation for triage decisions and JSONL inputs."""
 
 import json
 

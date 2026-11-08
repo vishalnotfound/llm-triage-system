@@ -7,10 +7,10 @@ import os
 import time
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from contract import ACTIONS, PRIORITIES, ROUTES
-from triage import SIGNALS, apply_policy
+from .contract import ACTIONS, PRIORITIES, ROUTES
+from .triage import SIGNALS, apply_policy
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,6 +19,14 @@ DEFAULT_MODEL = "gpt-4.1-mini-2025-04-14"
 PROMPTS = {"api": "candidate_prompt.md", "api-direct": "direct_prompt.md"}
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 ATTEMPTS = 4
+MAX_RESPONSE_BYTES = 64 * 1024
+
+
+class RejectRedirects(HTTPRedirectHandler):
+    """Keep provider credentials and ticket content on the configured endpoint."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 SIGNALS_SCHEMA = {
     "type": "object",
@@ -60,7 +68,7 @@ def settings():
 
 @functools.cache
 def system_prompt(mode):
-    prompt = (ROOT / "starter" / PROMPTS[mode]).read_text(encoding="utf-8")
+    prompt = (ROOT / "triage_engine" / PROMPTS[mode]).read_text(encoding="utf-8")
     policy = (ROOT / "policy.md").read_text(encoding="utf-8")
     return prompt.strip() + "\n\n" + policy.strip()
 
@@ -73,7 +81,7 @@ def describe(mode):
         "model_requested": config["model"],
         "temperature": config["temperature"] or "provider default",
         "response_format": "json_schema, strict",
-        "system_prompt": f"starter/{PROMPTS[mode]} + policy.md",
+        "system_prompt": f"triage_engine/{PROMPTS[mode]} + policy.md",
         "system_prompt_sha256": hashlib.sha256(system_prompt(mode).encode("utf-8")).hexdigest(),
     }
 
@@ -88,14 +96,18 @@ def post(payload):
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         method="POST",
     )
+    opener = build_opener(RejectRedirects())
     for attempt in range(1, ATTEMPTS + 1):
         try:
-            with urlopen(request, timeout=60) as response:
-                return json.load(response)
+            with opener.open(request, timeout=60) as response:
+                content = response.read(MAX_RESPONSE_BYTES + 1)
+                if len(content) > MAX_RESPONSE_BYTES:
+                    raise ValueError("Model response exceeded 64 KiB")
+                return json.loads(content)
         except HTTPError as exc:
-            if exc.code not in RETRYABLE_STATUS or attempt == ATTEMPTS:
-                detail = exc.read().decode("utf-8", "replace")[:500]
-                raise RuntimeError(f"HTTP {exc.code} from model API: {detail}") from exc
+            with exc:
+                if exc.code not in RETRYABLE_STATUS or attempt == ATTEMPTS:
+                    raise RuntimeError(f"HTTP {exc.code} from model API") from exc
         except OSError:
             if attempt == ATTEMPTS:
                 raise
@@ -128,10 +140,7 @@ def complete(mode, ticket, schema_name, schema):
     choice = result["choices"][0]
     message = choice["message"]
     if choice.get("finish_reason") != "stop" or not message.get("content"):
-        raise ValueError(
-            f"unusable model response: finish_reason={choice.get('finish_reason')}, "
-            f"refusal={message.get('refusal')}"
-        )
+        raise ValueError("Model refused or did not return a complete response")
     usage = result.get("usage") or {}
     return json.loads(message["content"]), {
         "model": result.get("model"),
@@ -145,8 +154,10 @@ def complete(mode, ticket, schema_name, schema):
 def decide(ticket):
     """Candidate: the model reports policy signals; triage.apply_policy decides."""
     signals, meta = complete("api", ticket, "ticket_signals", SIGNALS_SCHEMA)
-    if set(signals) != set(SIGNALS) or any(type(value) is not bool for value in signals.values()):
-        raise ValueError(f"invalid signals from model: {signals}")
+    if not isinstance(signals, dict) or set(signals) != set(SIGNALS):
+        raise ValueError("Model response did not contain the required policy signals")
+    if any(type(value) is not bool for value in signals.values()):
+        raise ValueError("Model policy signals must be booleans")
     return apply_policy(ticket["id"], signals), {"signals": signals, **meta}
 
 

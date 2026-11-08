@@ -6,7 +6,7 @@ import platform
 import time
 from pathlib import Path
 
-from contract import read_jsonl, validate_decision
+from .contract import read_jsonl, validate_decision
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,11 +27,11 @@ def main():
     args = parser.parse_args()
 
     if args.mode == "heuristic":
-        from triage import decide
+        from .triage import decide
 
         config = {}
     else:
-        import model
+        from . import model
 
         decide = model.decide if args.mode == "api" else model.decide_direct
         config = model.describe(args.mode)

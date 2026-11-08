@@ -1,4 +1,4 @@
-# UnderAI support triage policy (fictional)
+# UnderAI support triage policy
 
 Return a decision only; do not perform any account action.
 
