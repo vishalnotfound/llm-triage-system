@@ -13,7 +13,7 @@ from .triage import apply_policy, validate_signals
 
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
-DEFAULT_MODEL = "gpt-4.1-mini-2025-04-14"
+DEFAULT_MODEL = "gpt-6-luna"
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 ATTEMPTS = 4
 MAX_RESPONSE_BYTES = 64 * 1024
@@ -119,6 +119,8 @@ def complete(ticket, schema, profile):
             "json_schema": {"name": "ticket_signals", "strict": True, "schema": schema},
         },
     }
+    if config["model"] == "gpt-6-luna":
+        payload["reasoning_effort"] = "none"
     if config["temperature"]:
         payload["temperature"] = float(config["temperature"])
 

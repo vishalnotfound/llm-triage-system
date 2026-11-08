@@ -9,7 +9,8 @@ route, action, and priority.
 From the repository root, use Python 3.10 or later. No packages need to be
 installed. Set `OPENAI_API_KEY` in your environment or copy
 [.env.example](.env.example) to `.env` and configure your model provider.
-Classification sends ticket subjects and bodies to that provider.
+The default model is GPT-6 Luna (`gpt-6-luna`). Set `OPENAI_MODEL` to override
+it. Classification sends ticket subjects and bodies to the configured provider.
 
 ```sh
 python3 -m llm_triage_system batch
@@ -17,7 +18,8 @@ python3 -m llm_triage_system batch
 
 Open `results/report.json`. It contains a run summary with ticket count,
 model, total token usage, and elapsed time, followed by each ticket's decision,
-detected signals, token usage, and classification time. Token counts are
+detected signals, token usage, and classification time. Each result ends with
+the original ticket subject and body for comparison. Token counts are
 `null` if the provider does not report them. Each successful run replaces the
 report. Use `--output path/to/report.json` to save it elsewhere.
 

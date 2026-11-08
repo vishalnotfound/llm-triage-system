@@ -70,9 +70,9 @@ def run_batch(directory, cases, output):
             raise ValueError(f"Ticket {ticket['id']!r} could not be classified: {exc}") from exc
         results.append({
             **decision,
-            "subject": ticket["subject"],
             "signals": metrics["signals"],
             "metrics": {key: metrics[key] for key in ("prompt_tokens", "completion_tokens", "seconds")},
+            "input": {"subject": ticket["subject"], "body": ticket["body"]},
         })
     elapsed = time.perf_counter() - started
 
