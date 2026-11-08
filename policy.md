@@ -1,4 +1,4 @@
-# UnderAI support triage policy
+# LLM Triage System policy
 
 Return a decision only; do not perform any account action.
 

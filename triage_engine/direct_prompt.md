@@ -1,4 +1,4 @@
-You triage fictional UnderAI support tickets. Apply the policy below and
+You classify support tickets for the LLM Triage System. Apply the policy below and
 return the route, action, and priority for the ticket. When the ticket raises
 several issues, use the first matching rule in the policy's order.
 

@@ -1,4 +1,4 @@
-"""Operator commands and JSON interface for UnderAI Triage."""
+"""Operator commands and JSON interface for LLM Triage System."""
 
 import argparse
 import getpass
@@ -68,10 +68,10 @@ def classify(queue, ticket_id, actor):
 
 
 def parser():
-    cli = argparse.ArgumentParser(prog="python -m underai", description="UnderAI support triage")
+    cli = argparse.ArgumentParser(prog="python -m llm_triage_system", description="LLM Triage System")
     cli.add_argument(
-        "--db", type=Path, default=os.environ.get("UNDERAI_DB", "var/triage.sqlite3"),
-        help="SQLite path (default: UNDERAI_DB or var/triage.sqlite3)",
+        "--db", type=Path, default=os.environ.get("LLM_TRIAGE_DB", "var/triage.sqlite3"),
+        help="SQLite path (default: LLM_TRIAGE_DB or var/triage.sqlite3)",
     )
     cli.add_argument("--actor", help="Audit label (defaults to the OS username)")
     commands = cli.add_subparsers(dest="command", required=True)

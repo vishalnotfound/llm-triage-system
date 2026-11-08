@@ -1,6 +1,6 @@
-# UnderAI Triage
+# LLM Triage System
 
-UnderAI Triage queues support tickets, recommends the next action, and records
+LLM Triage System queues support tickets, recommends the next action, and records
 the operator's decision. It covers security incidents, privacy requests,
 account access, billing, and general support. The classifier detects policy
 signals and a deterministic ruleset applies [the routing policy](policy.md).
@@ -16,14 +16,14 @@ configure your approved provider. Intake, queue management, and manual review
 work without a model key.
 
 ```sh
-python3 -m underai submit <<'JSON'
+python3 -m llm_triage_system submit <<'JSON'
 {"id":"SUP-100","subject":"Duplicate charge","body":"My October invoice shows the same charge twice."}
 JSON
-python3 -m underai classify SUP-100
-python3 -m underai list --status triaged --route billing
-python3 -m underai show SUP-100
-python3 -m underai resolve SUP-100 --reason "Checked the invoice and replied in the support system"
-python3 -m underai history SUP-100
+python3 -m llm_triage_system classify SUP-100
+python3 -m llm_triage_system list --status triaged --route billing
+python3 -m llm_triage_system show SUP-100
+python3 -m llm_triage_system resolve SUP-100 --reason "Checked the invoice and replied in the support system"
+python3 -m llm_triage_system history SUP-100
 ```
 
 - **Intake.** Pass one JSON object per invocation. Reusing the source ticket ID
@@ -38,9 +38,9 @@ python3 -m underai history SUP-100
   `reopen` to put it back in the triaged queue with its last decision.
 
 ```sh
-python3 -m underai review SUP-100 --route billing --action reply --priority normal \
+python3 -m llm_triage_system review SUP-100 --route billing --action reply --priority normal \
   --reason "Confirmed the billing request"
-python3 -m underai reopen SUP-100 --reason "Customer reported a second charge"
+python3 -m llm_triage_system reopen SUP-100 --reason "Customer reported a second charge"
 ```
 
 All successful commands emit JSON. Exit code `1` indicates a rejected
@@ -52,7 +52,7 @@ A late classification result cannot overwrite a newer attempt or manual decision
 
 ## Operate on a single host
 
-Run as a restricted OS account and set `UNDERAI_DB` to an absolute path on
+Run as a restricted OS account and set `LLM_TRIAGE_DB` to an absolute path on
 persistent local storage. The default is `var/triage.sqlite3`. An operator or
 integration can supply `--db` and `--actor` before the subcommand. The actor
 value is an audit label. Access control comes from the host account and
