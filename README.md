@@ -74,6 +74,5 @@ to place the queue database on persistent storage. It defaults to
 access to databases, backups, and reports because they can contain customer
 information. Run `python3 -m llm_triage_system --help` for all commands.
 
-The original synthetic cases and support policy are adapted from Deployment.inc's
-[Open Problem 02 — The Deprecation Notice](https://github.com/Deployment-inc/Deployment.inc-Hiring-Problems/blob/main/problems/OP-02-the-deprecation-notice.md)
-under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Sample tickets and support policy include modified material by Deployment.inc.
+[Source material](https://github.com/Deployment-inc/Deployment.inc-Hiring-Problems/blob/main/problems/OP-02-the-deprecation-notice.md) · [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
